@@ -1,12 +1,6 @@
 # Streamlit Bulk Image Downloader Repo
 
-Create these files in your GitHub repo.
-
----
-
-## `streamlit_app.py`
-
-```python
+## streamlit_app.py
 import csv
 import io
 import os
