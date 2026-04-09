@@ -355,3 +355,12 @@ if st.button("Start Bulk Download", type="primary", use_container_width=True):
             mime="application/zip",
             use_container_width=True,
         )
+st.markdown(
+    """
+    <hr style="margin-top:30px; margin-bottom:10px;">
+    <div style="text-align:center; color:gray; font-size:14px;">
+        © Designed and Developed by Pratik Adsare
+    </div>
+    """,
+    unsafe_allow_html=True
+)
