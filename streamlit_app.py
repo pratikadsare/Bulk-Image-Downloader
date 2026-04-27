@@ -176,14 +176,24 @@ def parse_rename_csv(uploaded_file) -> list[dict]:
     return dedupe_rename_items_keep_order(items)
 
 
-def parse_rename_excel(uploaded_file) -> list[dict]:
+def get_excel_sheet_names(uploaded_file) -> list[str]:
     if openpyxl is None:
         st.error("Excel support needs openpyxl. Please install it using: pip install openpyxl")
         return []
 
-    raw = uploaded_file.read()
+    raw = uploaded_file.getvalue()
     workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-    sheet = workbook.active
+    return workbook.sheetnames
+
+
+def parse_rename_excel(uploaded_file, sheet_name: str) -> list[dict]:
+    if openpyxl is None:
+        st.error("Excel support needs openpyxl. Please install it using: pip install openpyxl")
+        return []
+
+    raw = uploaded_file.getvalue()
+    workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    sheet = workbook[sheet_name]
 
     items = []
     for row in sheet.iter_rows(min_row=1, values_only=True):
@@ -209,14 +219,14 @@ def parse_rename_excel(uploaded_file) -> list[dict]:
     return dedupe_rename_items_keep_order(items)
 
 
-def parse_rename_file(uploaded_file) -> list[dict]:
+def parse_rename_file(uploaded_file, sheet_name: str = "") -> list[dict]:
     file_name = uploaded_file.name.lower()
 
     if file_name.endswith(".csv"):
         return parse_rename_csv(uploaded_file)
 
-    if file_name.endswith(".xlsx"):
-        return parse_rename_excel(uploaded_file)
+    if file_name.endswith(".xlsx") and sheet_name:
+        return parse_rename_excel(uploaded_file, sheet_name)
 
     return []
 
@@ -524,8 +534,22 @@ else:
     )
 
     rename_items = []
+    selected_sheet_name = ""
+
     if rename_uploaded_file is not None:
-        rename_items = parse_rename_file(rename_uploaded_file)
+        if rename_uploaded_file.name.lower().endswith(".xlsx"):
+            sheet_names = get_excel_sheet_names(rename_uploaded_file)
+
+            if sheet_names:
+                selected_sheet_name = st.selectbox(
+                    "Select Excel Sheet",
+                    sheet_names,
+                    index=0,
+                    help="Choose the sheet/tab that has Column A as file name and Column B as image URL.",
+                )
+                rename_items = parse_rename_file(rename_uploaded_file, selected_sheet_name)
+        else:
+            rename_items = parse_rename_file(rename_uploaded_file)
 
     st.write(f"Total valid rename rows found: **{len(rename_items)}**")
 
