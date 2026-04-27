@@ -1,6 +1,5 @@
 import csv
 import io
-import os
 import re
 import zipfile
 from pathlib import Path
@@ -20,6 +19,20 @@ st.set_page_config(page_title="Bulk Image Downloader", page_icon="📥", layout=
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
 REQUEST_TIMEOUT = 60
 MAX_WORKERS = 8
+MAX_FILE_SIZE_MB = 50
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
+ALLOWED_IMAGE_CONTENT_TYPES = {
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/bmp",
+    "image/tiff",
+    "image/x-icon",
+    "image/svg+xml",
+}
 
 
 def sanitize_filename(name: str) -> str:
@@ -42,6 +55,7 @@ def get_extension_from_content_type(content_type: str) -> str:
         "image/bmp": ".bmp",
         "image/tiff": ".tif",
         "image/x-icon": ".ico",
+        "image/svg+xml": ".svg",
     }
     return mapping.get(content_type, "")
 
@@ -112,6 +126,53 @@ def build_session() -> requests.Session:
     return session
 
 
+def normalize_content_type(content_type: str) -> str:
+    return content_type.lower().split(";")[0].strip()
+
+
+def looks_like_image_url(url: str) -> bool:
+    name = get_name_from_url(url).lower()
+    return Path(name).suffix in {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".gif",
+        ".bmp",
+        ".tif",
+        ".tiff",
+        ".ico",
+        ".svg",
+    }
+
+
+def validate_image_response(response: requests.Response, original_url: str) -> None:
+    content_type = normalize_content_type(response.headers.get("Content-Type", ""))
+
+    if content_type and content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+        if not looks_like_image_url(response.url) and not looks_like_image_url(original_url):
+            raise ValueError(f"URL did not return an image. Content-Type was: {content_type}")
+
+    content_length = response.headers.get("Content-Length", "")
+    if content_length and content_length.isdigit():
+        if int(content_length) > MAX_FILE_SIZE_BYTES:
+            raise ValueError(f"File is too large. Limit is {MAX_FILE_SIZE_MB} MB.")
+
+
+def read_response_bytes(response: requests.Response) -> bytes:
+    content = io.BytesIO()
+    downloaded = 0
+
+    for chunk in response.iter_content(chunk_size=1024 * 64):
+        if chunk:
+            downloaded += len(chunk)
+            if downloaded > MAX_FILE_SIZE_BYTES:
+                raise ValueError(f"File is too large. Limit is {MAX_FILE_SIZE_MB} MB.")
+            content.write(chunk)
+
+    return content.getvalue()
+
+
 def parse_urls_from_text(text: str) -> list[str]:
     urls = []
     for line in text.splitlines():
@@ -122,7 +183,7 @@ def parse_urls_from_text(text: str) -> list[str]:
 
 
 def parse_urls_from_uploaded_file(uploaded_file) -> list[str]:
-    raw = uploaded_file.read()
+    raw = uploaded_file.getvalue()
     try:
         content = raw.decode("utf-8-sig")
     except Exception:
@@ -144,7 +205,7 @@ def parse_urls_from_uploaded_file(uploaded_file) -> list[str]:
 
 
 def parse_rename_csv(uploaded_file) -> list[dict]:
-    raw = uploaded_file.read()
+    raw = uploaded_file.getvalue()
     try:
         content = raw.decode("utf-8-sig")
     except Exception:
@@ -183,7 +244,10 @@ def get_excel_sheet_names(uploaded_file) -> list[str]:
 
     raw = uploaded_file.getvalue()
     workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-    return workbook.sheetnames
+    try:
+        return workbook.sheetnames
+    finally:
+        workbook.close()
 
 
 def parse_rename_excel(uploaded_file, sheet_name: str) -> list[dict]:
@@ -193,30 +257,33 @@ def parse_rename_excel(uploaded_file, sheet_name: str) -> list[dict]:
 
     raw = uploaded_file.getvalue()
     workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-    sheet = workbook[sheet_name]
+    try:
+        sheet = workbook[sheet_name]
 
-    items = []
-    for row in sheet.iter_rows(min_row=1, values_only=True):
-        if not row or len(row) < 2:
-            continue
+        items = []
+        for row in sheet.iter_rows(min_row=1, values_only=True):
+            if not row or len(row) < 2:
+                continue
 
-        file_name = "" if row[0] is None else str(row[0]).strip()
-        url = "" if row[1] is None else str(row[1]).strip()
+            file_name = "" if row[0] is None else str(row[0]).strip()
+            url = "" if row[1] is None else str(row[1]).strip()
 
-        if not file_name or not url:
-            continue
+            if not file_name or not url:
+                continue
 
-        if not (url.startswith("http://") or url.startswith("https://")):
-            continue
+            if not (url.startswith("http://") or url.startswith("https://")):
+                continue
 
-        items.append(
-            {
-                "file_name": sanitize_filename(file_name),
-                "url": url,
-            }
-        )
+            items.append(
+                {
+                    "file_name": sanitize_filename(file_name),
+                    "url": url,
+                }
+            )
 
-    return dedupe_rename_items_keep_order(items)
+        return dedupe_rename_items_keep_order(items)
+    finally:
+        workbook.close()
 
 
 def parse_rename_file(uploaded_file, sheet_name: str = "") -> list[dict]:
@@ -254,10 +321,11 @@ def dedupe_rename_items_keep_order(items: list[dict]) -> list[dict]:
     return result
 
 
-def download_one(url: str, naming_mode: str, prefix: str) -> dict:
+def download_one(url: str, naming_mode: str, prefix: str, serial_number: int) -> dict:
     session = build_session()
     response = session.get(url, stream=True, timeout=REQUEST_TIMEOUT, allow_redirects=True)
     response.raise_for_status()
+    validate_image_response(response, url)
 
     content_type = response.headers.get("Content-Type", "")
     content_disposition = response.headers.get("Content-Disposition", "")
@@ -266,24 +334,19 @@ def download_one(url: str, naming_mode: str, prefix: str) -> dict:
     url_name = get_name_from_url(response.url) or get_name_from_url(url)
 
     if naming_mode == "Original name from server":
-        chosen_name = header_name or url_name or "downloaded_file"
+        chosen_name = header_name or url_name or f"downloaded_file_{serial_number}"
         name_source = "content-disposition" if header_name else "url"
     elif naming_mode == "CDN or URL name":
-        chosen_name = url_name or header_name or "downloaded_file"
+        chosen_name = url_name or header_name or f"downloaded_file_{serial_number}"
         name_source = "url" if url_name else "content-disposition"
     else:
         clean_prefix = sanitize_filename(prefix) or "image"
-        chosen_name = clean_prefix
+        chosen_name = f"{clean_prefix}_{serial_number}"
         name_source = "custom-prefix"
 
     chosen_name = sanitize_filename(chosen_name)
     chosen_name = ensure_extension(chosen_name, content_type, response.url)
-
-    content = io.BytesIO()
-    for chunk in response.iter_content(chunk_size=1024 * 64):
-        if chunk:
-            content.write(chunk)
-    content.seek(0)
+    content_bytes = read_response_bytes(response)
 
     return {
         "url": url,
@@ -294,7 +357,7 @@ def download_one(url: str, naming_mode: str, prefix: str) -> dict:
         "content_type": content_type,
         "http_status": response.status_code,
         "error": "",
-        "bytes": content.getvalue(),
+        "bytes": content_bytes,
     }
 
 
@@ -305,17 +368,13 @@ def download_one_with_rename(item: dict) -> dict:
     session = build_session()
     response = session.get(url, stream=True, timeout=REQUEST_TIMEOUT, allow_redirects=True)
     response.raise_for_status()
+    validate_image_response(response, url)
 
     content_type = response.headers.get("Content-Type", "")
 
     chosen_name = sanitize_filename(requested_file_name)
     chosen_name = ensure_extension(chosen_name, content_type, response.url)
-
-    content = io.BytesIO()
-    for chunk in response.iter_content(chunk_size=1024 * 64):
-        if chunk:
-            content.write(chunk)
-    content.seek(0)
+    content_bytes = read_response_bytes(response)
 
     return {
         "url": url,
@@ -326,7 +385,7 @@ def download_one_with_rename(item: dict) -> dict:
         "content_type": content_type,
         "http_status": response.status_code,
         "error": "",
-        "bytes": content.getvalue(),
+        "bytes": content_bytes,
     }
 
 
@@ -335,6 +394,18 @@ def build_zip_and_report(results: list[dict]) -> tuple[bytes, str]:
     zip_buffer = io.BytesIO()
 
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        report_rows = []
+
+        for row in results:
+            row_for_csv = {k: v for k, v in row.items() if k != "bytes"}
+
+            if row["status"] == "success":
+                unique_name = make_unique_name(row["file_name"], used_names)
+                row_for_csv["file_name"] = unique_name
+                zf.writestr(unique_name, row["bytes"])
+
+            report_rows.append(row_for_csv)
+
         report_buffer = io.StringIO()
         writer = csv.DictWriter(
             report_buffer,
@@ -350,14 +421,7 @@ def build_zip_and_report(results: list[dict]) -> tuple[bytes, str]:
             ],
         )
         writer.writeheader()
-
-        for row in results:
-            row_for_csv = {k: v for k, v in row.items() if k != "bytes"}
-            writer.writerow(row_for_csv)
-
-            if row["status"] == "success":
-                unique_name = make_unique_name(row["file_name"], used_names)
-                zf.writestr(unique_name, row["bytes"])
+        writer.writerows(report_rows)
 
         zf.writestr("download_report.csv", report_buffer.getvalue().encode("utf-8-sig"))
 
@@ -368,7 +432,10 @@ def build_zip_and_report(results: list[dict]) -> tuple[bytes, str]:
 def run_bulk_download(urls: list[str], naming_mode: str, prefix: str) -> list[dict]:
     results = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(download_task_wrapper, url, naming_mode, prefix): url for url in urls}
+        futures = {
+            executor.submit(download_task_wrapper, url, naming_mode, prefix, index): url
+            for index, url in enumerate(urls, start=1)
+        }
         progress = st.progress(0)
         status = st.empty()
 
@@ -407,9 +474,9 @@ def run_bulk_download_with_rename(items: list[dict]) -> list[dict]:
     return results
 
 
-def download_task_wrapper(url: str, naming_mode: str, prefix: str) -> dict:
+def download_task_wrapper(url: str, naming_mode: str, prefix: str, serial_number: int) -> dict:
     try:
-        return download_one(url, naming_mode, prefix)
+        return download_one(url, naming_mode, prefix, serial_number)
     except Exception as e:
         return {
             "url": url,
@@ -486,6 +553,7 @@ if download_type == "Normal Bulk Download":
     urls = dedupe_keep_order(urls)
 
     st.write(f"Total valid URLs found: **{len(urls)}**")
+    st.caption(f"Safety limit: each image must be {MAX_FILE_SIZE_MB} MB or less.")
 
     if st.button("Start Bulk Download", type="primary", width="stretch"):
         if not urls:
@@ -552,6 +620,7 @@ else:
             rename_items = parse_rename_file(rename_uploaded_file)
 
     st.write(f"Total valid rename rows found: **{len(rename_items)}**")
+    st.caption(f"Safety limit: each image must be {MAX_FILE_SIZE_MB} MB or less.")
 
     if rename_items:
         preview_rows = []
