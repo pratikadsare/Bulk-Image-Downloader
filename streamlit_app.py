@@ -487,7 +487,7 @@ if download_type == "Normal Bulk Download":
 
     st.write(f"Total valid URLs found: **{len(urls)}**")
 
-    if st.button("Start Bulk Download", type="primary", use_container_width=True):
+    if st.button("Start Bulk Download", type="primary", width="stretch"):
         if not urls:
             st.error("Please paste URLs or upload a file first.")
         else:
@@ -512,7 +512,7 @@ if download_type == "Normal Bulk Download":
                     }
                 )
 
-            st.dataframe(preview_rows, use_container_width=True)
+            st.dataframe(preview_rows, width="stretch")
 
             zip_bytes, zip_name = build_zip_and_report(results)
             st.download_button(
@@ -520,7 +520,7 @@ if download_type == "Normal Bulk Download":
                 data=zip_bytes,
                 file_name=zip_name,
                 mime="application/zip",
-                use_container_width=True,
+                width="stretch",
             )
 
 else:
@@ -562,9 +562,9 @@ else:
                     "url": item["url"],
                 }
             )
-        st.dataframe(preview_rows, use_container_width=True)
+        st.dataframe(preview_rows, width="stretch")
 
-    if st.button("Start Bulk Download by Renaming", type="primary", use_container_width=True):
+    if st.button("Start Bulk Download by Renaming", type="primary", width="stretch"):
         if not rename_items:
             st.error("Please upload a valid CSV or Excel file first. Column A should have file name and Column B should have image URL.")
         else:
@@ -589,7 +589,7 @@ else:
                     }
                 )
 
-            st.dataframe(preview_rows, use_container_width=True)
+            st.dataframe(preview_rows, width="stretch")
 
             zip_bytes, zip_name = build_zip_and_report(results)
             st.download_button(
@@ -597,7 +597,7 @@ else:
                 data=zip_bytes,
                 file_name=zip_name,
                 mime="application/zip",
-                use_container_width=True,
+                width="stretch",
             )
 
 st.markdown(
@@ -607,5 +607,5 @@ st.markdown(
         © Designed and Developed by Pratik Adsare
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
