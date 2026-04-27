@@ -10,6 +10,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import streamlit as st
 
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
+
 st.set_page_config(page_title="Bulk Image Downloader", page_icon="📥", layout="wide")
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
@@ -152,8 +157,8 @@ def parse_rename_csv(uploaded_file) -> list[dict]:
         if len(row) < 2:
             continue
 
-        file_name = row[0].strip()
-        url = row[1].strip()
+        file_name = str(row[0]).strip()
+        url = str(row[1]).strip()
 
         if not file_name or not url:
             continue
@@ -169,6 +174,51 @@ def parse_rename_csv(uploaded_file) -> list[dict]:
         )
 
     return dedupe_rename_items_keep_order(items)
+
+
+def parse_rename_excel(uploaded_file) -> list[dict]:
+    if openpyxl is None:
+        st.error("Excel support needs openpyxl. Please install it using: pip install openpyxl")
+        return []
+
+    raw = uploaded_file.read()
+    workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    sheet = workbook.active
+
+    items = []
+    for row in sheet.iter_rows(min_row=1, values_only=True):
+        if not row or len(row) < 2:
+            continue
+
+        file_name = "" if row[0] is None else str(row[0]).strip()
+        url = "" if row[1] is None else str(row[1]).strip()
+
+        if not file_name or not url:
+            continue
+
+        if not (url.startswith("http://") or url.startswith("https://")):
+            continue
+
+        items.append(
+            {
+                "file_name": sanitize_filename(file_name),
+                "url": url,
+            }
+        )
+
+    return dedupe_rename_items_keep_order(items)
+
+
+def parse_rename_file(uploaded_file) -> list[dict]:
+    file_name = uploaded_file.name.lower()
+
+    if file_name.endswith(".csv"):
+        return parse_rename_csv(uploaded_file)
+
+    if file_name.endswith(".xlsx"):
+        return parse_rename_excel(uploaded_file)
+
+    return []
 
 
 def dedupe_keep_order(items: list[str]) -> list[str]:
@@ -262,7 +312,7 @@ def download_one_with_rename(item: dict) -> dict:
         "final_url": response.url,
         "status": "success",
         "file_name": chosen_name,
-        "name_source": "csv-column-a",
+        "name_source": "uploaded-file-column-a",
         "content_type": content_type,
         "http_status": response.status_code,
         "error": "",
@@ -373,7 +423,7 @@ def download_rename_task_wrapper(item: dict) -> dict:
             "final_url": "",
             "status": "failed",
             "file_name": item.get("file_name", ""),
-            "name_source": "csv-column-a",
+            "name_source": "uploaded-file-column-a",
             "content_type": "",
             "http_status": "",
             "error": str(e),
@@ -465,17 +515,17 @@ if download_type == "Normal Bulk Download":
 
 else:
     st.subheader("Bulk Download by Renaming")
-    st.info("Upload a CSV file where Column A has the file name and Column B has the image URL.")
+    st.info("Upload a CSV or Excel file where Column A has the file name and Column B has the image URL.")
 
     rename_uploaded_file = st.file_uploader(
-        "Upload CSV file for renaming",
-        type=["csv"],
+        "Upload CSV or Excel file for renaming",
+        type=["csv", "xlsx"],
         help="Column A = File Name, Column B = Image URL",
     )
 
     rename_items = []
     if rename_uploaded_file is not None:
-        rename_items = parse_rename_csv(rename_uploaded_file)
+        rename_items = parse_rename_file(rename_uploaded_file)
 
     st.write(f"Total valid rename rows found: **{len(rename_items)}**")
 
@@ -492,7 +542,7 @@ else:
 
     if st.button("Start Bulk Download by Renaming", type="primary", use_container_width=True):
         if not rename_items:
-            st.error("Please upload a valid CSV file first. Column A should have file name and Column B should have image URL.")
+            st.error("Please upload a valid CSV or Excel file first. Column A should have file name and Column B should have image URL.")
         else:
             with st.spinner("Downloading images with renamed file names and preparing ZIP..."):
                 results = run_bulk_download_with_rename(rename_items)
