@@ -571,6 +571,9 @@ if "normal_zip_name" not in st.session_state:
 if "normal_preview_rows" not in st.session_state:
     st.session_state.normal_preview_rows = []
 
+if "normal_success_msg" not in st.session_state:
+    st.session_state.normal_success_msg = ""
+
 if "rename_zip_bytes" not in st.session_state:
     st.session_state.rename_zip_bytes = None
 
@@ -579,6 +582,9 @@ if "rename_zip_name" not in st.session_state:
 
 if "rename_preview_rows" not in st.session_state:
     st.session_state.rename_preview_rows = []
+
+if "rename_success_msg" not in st.session_state:
+    st.session_state.rename_success_msg = ""
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -633,11 +639,11 @@ if download_type == "Normal Bulk Download":
     st.write(f"Total valid URLs found: **{len(urls)}**")
     st.caption(f"Safety limit: each image must be {MAX_FILE_SIZE_MB} MB or less.")
 
-    # FIX: use_container_width=True instead of width="stretch"
     if st.button("Start Bulk Download", type="primary", use_container_width=True):
         st.session_state.normal_zip_bytes = None
         st.session_state.normal_zip_name = ""
         st.session_state.normal_preview_rows = []
+        st.session_state.normal_success_msg = ""
 
         if not urls:
             st.error("Please paste URLs or upload a file first.")
@@ -648,21 +654,26 @@ if download_type == "Normal Bulk Download":
             success_count = sum(1 for r in results if r["status"] == "success")
             failed_count = sum(1 for r in results if r["status"] == "failed")
 
-            st.success(f"Done. Success: {success_count} | Failed: {failed_count}")
-
             preview_rows = make_preview_rows(results)
             zip_bytes, zip_name = build_zip_and_report(results)
 
             st.session_state.normal_preview_rows = preview_rows
             st.session_state.normal_zip_bytes = zip_bytes
             st.session_state.normal_zip_name = zip_name
+            st.session_state.normal_success_msg = f"Done. Success: {success_count} | Failed: {failed_count}"
 
-    # FIX: use_container_width=True instead of width="stretch"
+            # Rerun so the download button renders cleanly in the next pass
+            st.rerun()
+
+    # Always render results and download button from session state
+    if st.session_state.get("normal_success_msg"):
+        st.success(st.session_state.normal_success_msg)
+
     if st.session_state.normal_preview_rows:
         st.dataframe(st.session_state.normal_preview_rows, use_container_width=True)
 
-    # FIX: removed on_click="ignore", use_container_width=True instead of width="stretch"
     if st.session_state.normal_zip_bytes:
+        st.success("✅ Your ZIP is ready! Click below to download.")
         st.download_button(
             label="⬇️ Download ZIP",
             data=st.session_state.normal_zip_bytes,
@@ -712,11 +723,11 @@ else:
         # FIX: use_container_width=True instead of width="stretch"
         st.dataframe(rename_input_preview_rows, use_container_width=True)
 
-    # FIX: use_container_width=True instead of width="stretch"
     if st.button("Start Bulk Download by Renaming", type="primary", use_container_width=True):
         st.session_state.rename_zip_bytes = None
         st.session_state.rename_zip_name = ""
         st.session_state.rename_preview_rows = []
+        st.session_state.rename_success_msg = ""
 
         if not rename_items:
             st.error("Please upload a valid CSV or Excel file first. Column A should have file name and Column B should have image URL.")
@@ -727,21 +738,26 @@ else:
             success_count = sum(1 for r in results if r["status"] == "success")
             failed_count = sum(1 for r in results if r["status"] == "failed")
 
-            st.success(f"Done. Success: {success_count} | Failed: {failed_count}")
-
             preview_rows = make_preview_rows(results)
             zip_bytes, zip_name = build_zip_and_report(results)
 
             st.session_state.rename_preview_rows = preview_rows
             st.session_state.rename_zip_bytes = zip_bytes
             st.session_state.rename_zip_name = zip_name
+            st.session_state.rename_success_msg = f"Done. Success: {success_count} | Failed: {failed_count}"
 
-    # FIX: use_container_width=True instead of width="stretch"
+            # Rerun so the download button renders cleanly in the next pass
+            st.rerun()
+
+    # Always render results and download button from session state
+    if st.session_state.get("rename_success_msg"):
+        st.success(st.session_state.rename_success_msg)
+
     if st.session_state.rename_preview_rows:
         st.dataframe(st.session_state.rename_preview_rows, use_container_width=True)
 
-    # FIX: removed on_click="ignore", use_container_width=True instead of width="stretch"
     if st.session_state.rename_zip_bytes:
+        st.success("✅ Your ZIP is ready! Click below to download.")
         st.download_button(
             label="⬇️ Download ZIP",
             data=st.session_state.rename_zip_bytes,
