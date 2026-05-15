@@ -46,9 +46,7 @@ def sanitize_filename(name: str) -> str:
 def get_extension_from_content_type(content_type: str) -> str:
     if not content_type:
         return ""
-
     content_type = content_type.lower().split(";")[0].strip()
-
     mapping = {
         "image/jpeg": ".jpg",
         "image/jpg": ".jpg",
@@ -60,22 +58,18 @@ def get_extension_from_content_type(content_type: str) -> str:
         "image/x-icon": ".ico",
         "image/svg+xml": ".svg",
     }
-
     return mapping.get(content_type, "")
 
 
 def get_name_from_content_disposition(content_disposition: str) -> str:
     if not content_disposition:
         return ""
-
     match = re.search(r"filename\*=UTF-8''([^;]+)", content_disposition, flags=re.I)
     if match:
         return sanitize_filename(unquote(match.group(1).strip().strip('"')))
-
     match = re.search(r'filename="?([^";]+)"?', content_disposition, flags=re.I)
     if match:
         return sanitize_filename(unquote(match.group(1).strip()))
-
     return ""
 
 
@@ -92,43 +86,36 @@ def ensure_extension(filename: str, content_type: str, url: str) -> str:
     current_ext = Path(filename).suffix
     if current_ext:
         return filename
-
     ext = get_extension_from_content_type(content_type)
     if ext:
         return filename + ext
-
     url_name = get_name_from_url(url)
     url_ext = Path(url_name).suffix
     if url_ext:
         return filename + url_ext
-
     return filename + ".jpg"
 
 
-def make_unique_name(filename: str, used_names: set[str]) -> str:
+def make_unique_name(filename: str, used_names: set) -> str:
     base = Path(filename).stem
     ext = Path(filename).suffix
     candidate = filename
     counter = 1
-
     while candidate.lower() in used_names:
         candidate = f"{base}_{counter}{ext}"
         counter += 1
-
     used_names.add(candidate.lower())
     return candidate
 
 
 def build_session() -> requests.Session:
     session = requests.Session()
-    session.headers.update(
-        {
-            "User-Agent": USER_AGENT,
-            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Connection": "keep-alive",
-        }
-    )
+    session.headers.update({
+        "User-Agent": USER_AGENT,
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Connection": "keep-alive",
+    })
     return session
 
 
@@ -139,26 +126,16 @@ def normalize_content_type(content_type: str) -> str:
 def looks_like_image_url(url: str) -> bool:
     name = get_name_from_url(url).lower()
     return Path(name).suffix in {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".webp",
-        ".gif",
-        ".bmp",
-        ".tif",
-        ".tiff",
-        ".ico",
-        ".svg",
+        ".jpg", ".jpeg", ".png", ".webp", ".gif",
+        ".bmp", ".tif", ".tiff", ".ico", ".svg",
     }
 
 
 def validate_image_response(response: requests.Response, original_url: str) -> None:
     content_type = normalize_content_type(response.headers.get("Content-Type", ""))
-
     if content_type and content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
         if not looks_like_image_url(response.url) and not looks_like_image_url(original_url):
             raise ValueError(f"URL did not return an image. Content-Type was: {content_type}")
-
     content_length = response.headers.get("Content-Length", "")
     if content_length and content_length.isdigit():
         if int(content_length) > MAX_FILE_SIZE_BYTES:
@@ -168,175 +145,128 @@ def validate_image_response(response: requests.Response, original_url: str) -> N
 def read_response_bytes(response: requests.Response) -> bytes:
     content = io.BytesIO()
     downloaded = 0
-
     for chunk in response.iter_content(chunk_size=1024 * 64):
         if chunk:
             downloaded += len(chunk)
-
             if downloaded > MAX_FILE_SIZE_BYTES:
                 raise ValueError(f"File is too large. Limit is {MAX_FILE_SIZE_MB} MB.")
-
             content.write(chunk)
-
     return content.getvalue()
 
 
-def dedupe_keep_order(items: list[str]) -> list[str]:
+def dedupe_keep_order(items: list) -> list:
     seen = set()
     result = []
-
     for item in items:
         if item not in seen:
             result.append(item)
             seen.add(item)
-
     return result
 
 
-def dedupe_rename_items_keep_order(items: list[dict]) -> list[dict]:
+def dedupe_rename_items_keep_order(items: list) -> list:
     seen = set()
     result = []
-
     for item in items:
         key = item["url"]
         if key not in seen:
             result.append(item)
             seen.add(key)
-
     return result
 
 
-def parse_urls_from_text(text: str) -> list[str]:
+def parse_urls_from_text(text: str) -> list:
     urls = []
-
     for line in text.splitlines():
         value = line.strip()
         if value.startswith("http://") or value.startswith("https://"):
             urls.append(value)
-
     return dedupe_keep_order(urls)
 
 
-def parse_urls_from_uploaded_file(uploaded_file) -> list[str]:
+def parse_urls_from_uploaded_file(uploaded_file) -> list:
     raw = uploaded_file.getvalue()
-
     try:
         content = raw.decode("utf-8-sig")
     except Exception:
         content = raw.decode("latin-1")
-
     urls = []
-
     if uploaded_file.name.lower().endswith(".csv"):
         reader = csv.reader(io.StringIO(content))
-
         for row in reader:
             for cell in row:
                 value = cell.strip()
-
                 if value.startswith("http://") or value.startswith("https://"):
                     urls.append(value)
                     break
     else:
         urls.extend(parse_urls_from_text(content))
-
     return dedupe_keep_order(urls)
 
 
-def parse_rename_csv(uploaded_file) -> list[dict]:
+def parse_rename_csv(uploaded_file) -> list:
     raw = uploaded_file.getvalue()
-
     try:
         content = raw.decode("utf-8-sig")
     except Exception:
         content = raw.decode("latin-1")
-
     items = []
     reader = csv.reader(io.StringIO(content))
-
     for row in reader:
         if len(row) < 2:
             continue
-
         file_name = str(row[0]).strip()
         url = str(row[1]).strip()
-
         if not file_name or not url:
             continue
-
         if not (url.startswith("http://") or url.startswith("https://")):
             continue
-
-        items.append(
-            {
-                "file_name": sanitize_filename(file_name),
-                "url": url,
-            }
-        )
-
+        items.append({"file_name": sanitize_filename(file_name), "url": url})
     return dedupe_rename_items_keep_order(items)
 
 
-def get_excel_sheet_names(uploaded_file) -> list[str]:
+def get_excel_sheet_names(uploaded_file) -> list:
     if openpyxl is None:
         st.error("Excel support needs openpyxl. Please install it using: pip install openpyxl")
         return []
-
     raw = uploaded_file.getvalue()
     workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-
     try:
         return workbook.sheetnames
     finally:
         workbook.close()
 
 
-def parse_rename_excel(uploaded_file, sheet_name: str) -> list[dict]:
+def parse_rename_excel(uploaded_file, sheet_name: str) -> list:
     if openpyxl is None:
         st.error("Excel support needs openpyxl. Please install it using: pip install openpyxl")
         return []
-
     raw = uploaded_file.getvalue()
     workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-
     try:
         sheet = workbook[sheet_name]
         items = []
-
         for row in sheet.iter_rows(min_row=1, values_only=True):
             if not row or len(row) < 2:
                 continue
-
             file_name = "" if row[0] is None else str(row[0]).strip()
             url = "" if row[1] is None else str(row[1]).strip()
-
             if not file_name or not url:
                 continue
-
             if not (url.startswith("http://") or url.startswith("https://")):
                 continue
-
-            items.append(
-                {
-                    "file_name": sanitize_filename(file_name),
-                    "url": url,
-                }
-            )
-
+            items.append({"file_name": sanitize_filename(file_name), "url": url})
         return dedupe_rename_items_keep_order(items)
     finally:
         workbook.close()
 
 
-def parse_rename_file(uploaded_file, sheet_name: str = "") -> list[dict]:
+def parse_rename_file(uploaded_file, sheet_name: str = "") -> list:
     file_name = uploaded_file.name.lower()
-
     if file_name.endswith(".csv"):
         return parse_rename_csv(uploaded_file)
-
     if file_name.endswith(".xlsx") and sheet_name:
         return parse_rename_excel(uploaded_file, sheet_name)
-
     return []
 
 
@@ -344,15 +274,11 @@ def download_one(url: str, naming_mode: str, prefix: str, serial_number: int) ->
     session = build_session()
     response = session.get(url, stream=True, timeout=REQUEST_TIMEOUT, allow_redirects=True)
     response.raise_for_status()
-
     validate_image_response(response, url)
-
     content_type = response.headers.get("Content-Type", "")
     content_disposition = response.headers.get("Content-Disposition", "")
-
     header_name = get_name_from_content_disposition(content_disposition)
     url_name = get_name_from_url(response.url) or get_name_from_url(url)
-
     if naming_mode == "Original name from server":
         chosen_name = header_name or url_name or f"downloaded_file_{serial_number}"
         name_source = "content-disposition" if header_name else "url"
@@ -363,51 +289,33 @@ def download_one(url: str, naming_mode: str, prefix: str, serial_number: int) ->
         clean_prefix = sanitize_filename(prefix) or "image"
         chosen_name = f"{clean_prefix}_{serial_number}"
         name_source = "custom-prefix"
-
     chosen_name = sanitize_filename(chosen_name)
     chosen_name = ensure_extension(chosen_name, content_type, response.url)
-
     content_bytes = read_response_bytes(response)
-
     return {
-        "url": url,
-        "final_url": response.url,
-        "status": "success",
-        "file_name": chosen_name,
-        "name_source": name_source,
-        "content_type": content_type,
-        "http_status": response.status_code,
-        "error": "",
-        "bytes": content_bytes,
+        "url": url, "final_url": response.url, "status": "success",
+        "file_name": chosen_name, "name_source": name_source,
+        "content_type": content_type, "http_status": response.status_code,
+        "error": "", "bytes": content_bytes,
     }
 
 
 def download_one_with_rename(item: dict) -> dict:
     url = item["url"]
     requested_file_name = item["file_name"]
-
     session = build_session()
     response = session.get(url, stream=True, timeout=REQUEST_TIMEOUT, allow_redirects=True)
     response.raise_for_status()
-
     validate_image_response(response, url)
-
     content_type = response.headers.get("Content-Type", "")
     chosen_name = sanitize_filename(requested_file_name)
     chosen_name = ensure_extension(chosen_name, content_type, response.url)
-
     content_bytes = read_response_bytes(response)
-
     return {
-        "url": url,
-        "final_url": response.url,
-        "status": "success",
-        "file_name": chosen_name,
-        "name_source": "uploaded-file-column-a",
-        "content_type": content_type,
-        "http_status": response.status_code,
-        "error": "",
-        "bytes": content_bytes,
+        "url": url, "final_url": response.url, "status": "success",
+        "file_name": chosen_name, "name_source": "uploaded-file-column-a",
+        "content_type": content_type, "http_status": response.status_code,
+        "error": "", "bytes": content_bytes,
     }
 
 
@@ -416,15 +324,9 @@ def download_task_wrapper(url: str, naming_mode: str, prefix: str, serial_number
         return download_one(url, naming_mode, prefix, serial_number)
     except Exception as e:
         return {
-            "url": url,
-            "final_url": "",
-            "status": "failed",
-            "file_name": "",
-            "name_source": "",
-            "content_type": "",
-            "http_status": "",
-            "error": str(e),
-            "bytes": b"",
+            "url": url, "final_url": "", "status": "failed",
+            "file_name": "", "name_source": "", "content_type": "",
+            "http_status": "", "error": str(e), "bytes": b"",
         }
 
 
@@ -433,156 +335,109 @@ def download_rename_task_wrapper(item: dict) -> dict:
         return download_one_with_rename(item)
     except Exception as e:
         return {
-            "url": item.get("url", ""),
-            "final_url": "",
-            "status": "failed",
-            "file_name": item.get("file_name", ""),
-            "name_source": "uploaded-file-column-a",
-            "content_type": "",
-            "http_status": "",
-            "error": str(e),
-            "bytes": b"",
+            "url": item.get("url", ""), "final_url": "", "status": "failed",
+            "file_name": item.get("file_name", ""), "name_source": "uploaded-file-column-a",
+            "content_type": "", "http_status": "", "error": str(e), "bytes": b"",
         }
 
 
-def run_bulk_download(urls: list[str], naming_mode: str, prefix: str) -> list[dict]:
+def run_bulk_download(urls: list, naming_mode: str, prefix: str) -> list:
     results = []
-
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
             executor.submit(download_task_wrapper, url, naming_mode, prefix, index): url
             for index, url in enumerate(urls, start=1)
         }
-
         progress = st.progress(0)
         status = st.empty()
-
         completed = 0
         total = len(futures)
-
         for future in as_completed(futures):
             result = future.result()
             results.append(result)
-
             completed += 1
             progress.progress(completed / total)
             status.info(f"Processed {completed} of {total}")
-
         status.success(f"Completed {completed} of {total}")
-
     return results
 
 
-def run_bulk_download_with_rename(items: list[dict]) -> list[dict]:
+def run_bulk_download_with_rename(items: list) -> list:
     results = []
-
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
             executor.submit(download_rename_task_wrapper, item): item
             for item in items
         }
-
         progress = st.progress(0)
         status = st.empty()
-
         completed = 0
         total = len(futures)
-
         for future in as_completed(futures):
             result = future.result()
             results.append(result)
-
             completed += 1
             progress.progress(completed / total)
             status.info(f"Processed {completed} of {total}")
-
         status.success(f"Completed {completed} of {total}")
-
     return results
 
 
-def build_zip_and_report(results: list[dict]) -> tuple[bytes, str]:
+def build_zip_and_report(results: list) -> tuple:
     used_names = set()
     zip_buffer = io.BytesIO()
-
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         report_rows = []
-
         for row in results:
             row_for_csv = {k: v for k, v in row.items() if k != "bytes"}
-
             if row["status"] == "success":
                 unique_name = make_unique_name(row["file_name"], used_names)
                 row_for_csv["file_name"] = unique_name
                 zf.writestr(unique_name, row["bytes"])
-
             report_rows.append(row_for_csv)
-
         report_buffer = io.StringIO()
-        writer = csv.DictWriter(
-            report_buffer,
-            fieldnames=[
-                "url",
-                "final_url",
-                "status",
-                "file_name",
-                "name_source",
-                "content_type",
-                "http_status",
-                "error",
-            ],
-        )
-
+        writer = csv.DictWriter(report_buffer, fieldnames=[
+            "url", "final_url", "status", "file_name",
+            "name_source", "content_type", "http_status", "error",
+        ])
         writer.writeheader()
         writer.writerows(report_rows)
-
         zf.writestr("download_report.csv", report_buffer.getvalue().encode("utf-8-sig"))
-
     zip_buffer.seek(0)
     return zip_buffer.getvalue(), "bulk_images_download.zip"
 
 
-def make_preview_rows(results: list[dict]) -> list[dict]:
-    preview_rows = []
-
-    for row in results:
-        preview_rows.append(
-            {
-                "status": row["status"],
-                "file_name": row["file_name"],
-                "name_source": row["name_source"],
-                "http_status": row["http_status"],
-                "url": row["url"],
-                "error": row["error"],
-            }
-        )
-
-    return preview_rows
+def make_preview_rows(results: list) -> list:
+    return [
+        {
+            "status": row["status"],
+            "file_name": row["file_name"],
+            "name_source": row["name_source"],
+            "http_status": row["http_status"],
+            "url": row["url"],
+            "error": row["error"],
+        }
+        for row in results
+    ]
 
 
-# ── Session state init ────────────────────────────────────────────────────────
+# ── Session state ─────────────────────────────────────────────────────────────
 
 if "normal_zip_bytes" not in st.session_state:
     st.session_state.normal_zip_bytes = None
-
 if "normal_zip_name" not in st.session_state:
     st.session_state.normal_zip_name = ""
-
 if "normal_preview_rows" not in st.session_state:
     st.session_state.normal_preview_rows = []
-
 if "normal_success_msg" not in st.session_state:
     st.session_state.normal_success_msg = ""
 
 if "rename_zip_bytes" not in st.session_state:
     st.session_state.rename_zip_bytes = None
-
 if "rename_zip_name" not in st.session_state:
     st.session_state.rename_zip_name = ""
-
 if "rename_preview_rows" not in st.session_state:
     st.session_state.rename_preview_rows = []
-
 if "rename_success_msg" not in st.session_state:
     st.session_state.rename_success_msg = ""
 
@@ -597,6 +452,8 @@ download_type = st.radio(
     ["Normal Bulk Download", "Bulk Download by Renaming"],
     horizontal=True,
 )
+
+# ── Normal Bulk Download ──────────────────────────────────────────────────────
 
 if download_type == "Normal Bulk Download":
     col1, col2 = st.columns(2)
@@ -627,19 +484,16 @@ if download_type == "Normal Bulk Download":
         prefix = st.text_input("Custom prefix", value="image")
 
     urls = []
-
     if url_text.strip():
         urls.extend(parse_urls_from_text(url_text))
-
     if uploaded_file is not None:
         urls.extend(parse_urls_from_uploaded_file(uploaded_file))
-
     urls = dedupe_keep_order(urls)
 
     st.write(f"Total valid URLs found: **{len(urls)}**")
     st.caption(f"Safety limit: each image must be {MAX_FILE_SIZE_MB} MB or less.")
 
-    if st.button("Start Bulk Download", type="primary", width='stretch'):
+    if st.button("Start Bulk Download", type="primary", width="stretch"):
         st.session_state.normal_zip_bytes = None
         st.session_state.normal_zip_name = ""
         st.session_state.normal_preview_rows = []
@@ -654,34 +508,29 @@ if download_type == "Normal Bulk Download":
             success_count = sum(1 for r in results if r["status"] == "success")
             failed_count = sum(1 for r in results if r["status"] == "failed")
 
-            preview_rows = make_preview_rows(results)
-            zip_bytes, zip_name = build_zip_and_report(results)
-
-            st.session_state.normal_preview_rows = preview_rows
-            st.session_state.normal_zip_bytes = zip_bytes
-            st.session_state.normal_zip_name = zip_name
+            st.session_state.normal_preview_rows = make_preview_rows(results)
+            st.session_state.normal_zip_bytes, st.session_state.normal_zip_name = build_zip_and_report(results)
             st.session_state.normal_success_msg = f"Done. Success: {success_count} | Failed: {failed_count}"
-
-            # Rerun so the download button renders cleanly in the next pass
             st.rerun()
 
-    # Always render results and download button from session state
-    if st.session_state.get("normal_success_msg"):
+    if st.session_state.normal_success_msg:
         st.success(st.session_state.normal_success_msg)
 
     if st.session_state.normal_preview_rows:
-        st.dataframe(st.session_state.normal_preview_rows, width='stretch')
+        st.dataframe(st.session_state.normal_preview_rows, width="stretch")
 
     if st.session_state.normal_zip_bytes:
-        st.success("✅ Your ZIP is ready! Click below to download.")
+        st.success("✅ Your ZIP is ready!")
         st.download_button(
             label="⬇️ Download ZIP",
             data=st.session_state.normal_zip_bytes,
             file_name=st.session_state.normal_zip_name,
             mime="application/zip",
-            width='stretch',
+            width="stretch",
             key="normal_download_zip",
         )
+
+# ── Bulk Download by Renaming ─────────────────────────────────────────────────
 
 else:
     st.subheader("Bulk Download by Renaming")
@@ -699,7 +548,6 @@ else:
     if rename_uploaded_file is not None:
         if rename_uploaded_file.name.lower().endswith(".xlsx"):
             sheet_names = get_excel_sheet_names(rename_uploaded_file)
-
             if sheet_names:
                 selected_sheet_name = st.selectbox(
                     "Select Excel Sheet",
@@ -707,7 +555,6 @@ else:
                     index=0,
                     help="Choose the sheet/tab that has Column A as file name and Column B as image URL.",
                 )
-
                 rename_items = parse_rename_file(rename_uploaded_file, selected_sheet_name)
         else:
             rename_items = parse_rename_file(rename_uploaded_file)
@@ -716,14 +563,12 @@ else:
     st.caption(f"Safety limit: each image must be {MAX_FILE_SIZE_MB} MB or less.")
 
     if rename_items:
-        rename_input_preview_rows = [
-            {"file_name": item["file_name"], "url": item["url"]}
-            for item in rename_items
-        ]
-        # FIX: width='stretch' instead of width="stretch"
-        st.dataframe(rename_input_preview_rows, width='stretch')
+        st.dataframe(
+            [{"file_name": i["file_name"], "url": i["url"]} for i in rename_items],
+            width="stretch",
+        )
 
-    if st.button("Start Bulk Download by Renaming", type="primary", width='stretch'):
+    if st.button("Start Bulk Download by Renaming", type="primary", width="stretch"):
         st.session_state.rename_zip_bytes = None
         st.session_state.rename_zip_name = ""
         st.session_state.rename_preview_rows = []
@@ -738,32 +583,25 @@ else:
             success_count = sum(1 for r in results if r["status"] == "success")
             failed_count = sum(1 for r in results if r["status"] == "failed")
 
-            preview_rows = make_preview_rows(results)
-            zip_bytes, zip_name = build_zip_and_report(results)
-
-            st.session_state.rename_preview_rows = preview_rows
-            st.session_state.rename_zip_bytes = zip_bytes
-            st.session_state.rename_zip_name = zip_name
+            st.session_state.rename_preview_rows = make_preview_rows(results)
+            st.session_state.rename_zip_bytes, st.session_state.rename_zip_name = build_zip_and_report(results)
             st.session_state.rename_success_msg = f"Done. Success: {success_count} | Failed: {failed_count}"
-
-            # Rerun so the download button renders cleanly in the next pass
             st.rerun()
 
-    # Always render results and download button from session state
-    if st.session_state.get("rename_success_msg"):
+    if st.session_state.rename_success_msg:
         st.success(st.session_state.rename_success_msg)
 
     if st.session_state.rename_preview_rows:
-        st.dataframe(st.session_state.rename_preview_rows, width='stretch')
+        st.dataframe(st.session_state.rename_preview_rows, width="stretch")
 
     if st.session_state.rename_zip_bytes:
-        st.success("✅ Your ZIP is ready! Click below to download.")
+        st.success("✅ Your ZIP is ready!")
         st.download_button(
             label="⬇️ Download ZIP",
             data=st.session_state.rename_zip_bytes,
             file_name=st.session_state.rename_zip_name,
             mime="application/zip",
-            width='stretch',
+            width="stretch",
             key="rename_download_zip",
         )
 
