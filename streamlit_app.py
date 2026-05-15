@@ -639,7 +639,7 @@ if download_type == "Normal Bulk Download":
     st.write(f"Total valid URLs found: **{len(urls)}**")
     st.caption(f"Safety limit: each image must be {MAX_FILE_SIZE_MB} MB or less.")
 
-    if st.button("Start Bulk Download", type="primary", use_container_width=True):
+    if st.button("Start Bulk Download", type="primary", width='stretch'):
         st.session_state.normal_zip_bytes = None
         st.session_state.normal_zip_name = ""
         st.session_state.normal_preview_rows = []
@@ -670,7 +670,7 @@ if download_type == "Normal Bulk Download":
         st.success(st.session_state.normal_success_msg)
 
     if st.session_state.normal_preview_rows:
-        st.dataframe(st.session_state.normal_preview_rows, use_container_width=True)
+        st.dataframe(st.session_state.normal_preview_rows, width='stretch')
 
     if st.session_state.normal_zip_bytes:
         st.success("✅ Your ZIP is ready! Click below to download.")
@@ -679,7 +679,7 @@ if download_type == "Normal Bulk Download":
             data=st.session_state.normal_zip_bytes,
             file_name=st.session_state.normal_zip_name,
             mime="application/zip",
-            use_container_width=True,
+            width='stretch',
             key="normal_download_zip",
         )
 
@@ -720,10 +720,10 @@ else:
             {"file_name": item["file_name"], "url": item["url"]}
             for item in rename_items
         ]
-        # FIX: use_container_width=True instead of width="stretch"
-        st.dataframe(rename_input_preview_rows, use_container_width=True)
+        # FIX: width='stretch' instead of width="stretch"
+        st.dataframe(rename_input_preview_rows, width='stretch')
 
-    if st.button("Start Bulk Download by Renaming", type="primary", use_container_width=True):
+    if st.button("Start Bulk Download by Renaming", type="primary", width='stretch'):
         st.session_state.rename_zip_bytes = None
         st.session_state.rename_zip_name = ""
         st.session_state.rename_preview_rows = []
@@ -754,7 +754,7 @@ else:
         st.success(st.session_state.rename_success_msg)
 
     if st.session_state.rename_preview_rows:
-        st.dataframe(st.session_state.rename_preview_rows, use_container_width=True)
+        st.dataframe(st.session_state.rename_preview_rows, width='stretch')
 
     if st.session_state.rename_zip_bytes:
         st.success("✅ Your ZIP is ready! Click below to download.")
@@ -763,7 +763,7 @@ else:
             data=st.session_state.rename_zip_bytes,
             file_name=st.session_state.rename_zip_name,
             mime="application/zip",
-            use_container_width=True,
+            width='stretch',
             key="rename_download_zip",
         )
 
