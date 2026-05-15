@@ -560,6 +560,8 @@ def make_preview_rows(results: list[dict]) -> list[dict]:
     return preview_rows
 
 
+# ── Session state init ────────────────────────────────────────────────────────
+
 if "normal_zip_bytes" not in st.session_state:
     st.session_state.normal_zip_bytes = None
 
@@ -578,6 +580,8 @@ if "rename_zip_name" not in st.session_state:
 if "rename_preview_rows" not in st.session_state:
     st.session_state.rename_preview_rows = []
 
+
+# ── UI ────────────────────────────────────────────────────────────────────────
 
 st.title("📥 Bulk Image Downloader")
 st.caption("Download images in bulk from URLs and save them in a ZIP with the best filename available.")
@@ -629,7 +633,8 @@ if download_type == "Normal Bulk Download":
     st.write(f"Total valid URLs found: **{len(urls)}**")
     st.caption(f"Safety limit: each image must be {MAX_FILE_SIZE_MB} MB or less.")
 
-    if st.button("Start Bulk Download", type="primary", width="stretch"):
+    # FIX: use_container_width=True instead of width="stretch"
+    if st.button("Start Bulk Download", type="primary", use_container_width=True):
         st.session_state.normal_zip_bytes = None
         st.session_state.normal_zip_name = ""
         st.session_state.normal_preview_rows = []
@@ -652,17 +657,18 @@ if download_type == "Normal Bulk Download":
             st.session_state.normal_zip_bytes = zip_bytes
             st.session_state.normal_zip_name = zip_name
 
+    # FIX: use_container_width=True instead of width="stretch"
     if st.session_state.normal_preview_rows:
-        st.dataframe(st.session_state.normal_preview_rows, width="stretch")
+        st.dataframe(st.session_state.normal_preview_rows, use_container_width=True)
 
+    # FIX: removed on_click="ignore", use_container_width=True instead of width="stretch"
     if st.session_state.normal_zip_bytes:
         st.download_button(
-            label="Download ZIP",
+            label="⬇️ Download ZIP",
             data=st.session_state.normal_zip_bytes,
             file_name=st.session_state.normal_zip_name,
             mime="application/zip",
-            width="stretch",
-            on_click="ignore",
+            use_container_width=True,
             key="normal_download_zip",
         )
 
@@ -699,19 +705,15 @@ else:
     st.caption(f"Safety limit: each image must be {MAX_FILE_SIZE_MB} MB or less.")
 
     if rename_items:
-        rename_input_preview_rows = []
+        rename_input_preview_rows = [
+            {"file_name": item["file_name"], "url": item["url"]}
+            for item in rename_items
+        ]
+        # FIX: use_container_width=True instead of width="stretch"
+        st.dataframe(rename_input_preview_rows, use_container_width=True)
 
-        for item in rename_items:
-            rename_input_preview_rows.append(
-                {
-                    "file_name": item["file_name"],
-                    "url": item["url"],
-                }
-            )
-
-        st.dataframe(rename_input_preview_rows, width="stretch")
-
-    if st.button("Start Bulk Download by Renaming", type="primary", width="stretch"):
+    # FIX: use_container_width=True instead of width="stretch"
+    if st.button("Start Bulk Download by Renaming", type="primary", use_container_width=True):
         st.session_state.rename_zip_bytes = None
         st.session_state.rename_zip_name = ""
         st.session_state.rename_preview_rows = []
@@ -734,17 +736,18 @@ else:
             st.session_state.rename_zip_bytes = zip_bytes
             st.session_state.rename_zip_name = zip_name
 
+    # FIX: use_container_width=True instead of width="stretch"
     if st.session_state.rename_preview_rows:
-        st.dataframe(st.session_state.rename_preview_rows, width="stretch")
+        st.dataframe(st.session_state.rename_preview_rows, use_container_width=True)
 
+    # FIX: removed on_click="ignore", use_container_width=True instead of width="stretch"
     if st.session_state.rename_zip_bytes:
         st.download_button(
-            label="Download ZIP",
+            label="⬇️ Download ZIP",
             data=st.session_state.rename_zip_bytes,
             file_name=st.session_state.rename_zip_name,
             mime="application/zip",
-            width="stretch",
-            on_click="ignore",
+            use_container_width=True,
             key="rename_download_zip",
         )
 
